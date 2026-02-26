@@ -1,0 +1,17 @@
+{
+  "urls": {
+    "type": "array",
+    "title": "URLs to qualify",
+    "description": "Array of website URLs to analyze",
+    "items": {
+      "type": "string"
+    },
+    "minItems": 1
+  },
+  "openrouterApiKey": {
+    "type": "string",
+    "title": "OpenRouter API Key",
+    "description": "Your OpenRouter API key for AI analysis",
+    "isSecret": true
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "ai-website-qualifying-agent",
+  "version": "1.0.0",
+  "description": "AI-powered B2B SaaS lead qualification agent - qualifies websites against your ICP using AI",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js"
+  },
+  "dependencies": {
+    "apify": "^3.1.10",
+    "openai": "^4.24.1",
+    "playwright": "^1.58.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
