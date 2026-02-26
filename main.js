@@ -78,7 +78,6 @@ async function closeBrowser() {
 
 // Scrape a single website
 async function scrapeWebsite(url, log) {
-    // Normalize the URL
     let normalizedUrl = url.trim();
     if (normalizedUrl.endsWith('/')) {
         normalizedUrl = normalizedUrl.slice(0, -1);
@@ -88,51 +87,42 @@ async function scrapeWebsite(url, log) {
     }
 
     let page = null;
-    
+
     try {
         const browserInstance = await getBrowser();
         page = await browserInstance.newPage();
-        
-        // Set user agent
+
         await page.setExtraHTTPHeaders({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         });
 
-        // Navigate with timeout
-        await page.goto(normalizedUrl, { 
+        await page.goto(normalizedUrl, {
             waitUntil: 'networkidle',
-            timeout: 30000 
+            timeout: 30000
         });
 
-        // Extract content from the page
         const content = await page.evaluate(() => {
-            // Remove unwanted elements
             const removeSelectors = ['script', 'style', 'nav', 'header', 'footer', 'noscript', 'iframe', 'svg', 'button', 'input', 'form', 'aside', '.sidebar', '#sidebar', '.menu', '.footer', '.header'];
             removeSelectors.forEach(selector => {
                 document.querySelectorAll(selector).forEach(el => el.remove());
             });
 
-            // Get all paragraph text
             const paragraphs = Array.from(document.querySelectorAll('p'))
                 .map(p => p.textContent.trim())
                 .filter(t => t.length > 20)
                 .join(' ')
                 .substring(0, 15000);
 
-            // Get headings
             const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6'))
                 .map(h => h.textContent.trim())
                 .filter(t => t.length > 0)
                 .join(' | ');
 
-            // Get meta description
-            const metaDesc = document.querySelector('meta[name="description"]')?.content || 
+            const metaDesc = document.querySelector('meta[name="description"]')?.content ||
                             document.querySelector('meta[property="og:description"]')?.content || '';
 
-            // Get main heading
             const h1 = document.querySelector('h1')?.textContent.trim() || '';
 
-            // Get hero text (large paragraphs)
             const heroTexts = Array.from(document.querySelectorAll('p, span, div'))
                 .filter(el => {
                     const style = window.getComputedStyle(el);
@@ -153,7 +143,6 @@ async function scrapeWebsite(url, log) {
             };
         });
 
-        // Combine all content
         const scrapedContent = [
             content.title,
             content.metaDescription,
@@ -181,7 +170,7 @@ async function scrapeWebsite(url, log) {
         };
 
     } catch (error) {
-        log.error(`Error scraping ${normalizedUrl}:`, error.message);
+        log.error(`Error scraping ${normalizedUrl}: ${error.message}`);
         return {
             url: url,
             content: '',
@@ -196,7 +185,7 @@ async function scrapeWebsite(url, log) {
     }
 }
 
-// Retry helper function with exponential backoff
+// Retry helper with exponential backoff
 async function withRetry(fn, maxRetries = 3, baseDelay = 2000, log) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
@@ -204,13 +193,13 @@ async function withRetry(fn, maxRetries = 3, baseDelay = 2000, log) {
         } catch (error) {
             const isRateLimit = error.message?.includes('rate_limit') || error.message?.includes('429');
             const isServerError = error.message?.includes('500') || error.message?.includes('503');
-            
+
             if (attempt === maxRetries || (!isRateLimit && !isServerError)) {
                 throw error;
             }
-            
+
             const delay = baseDelay * Math.pow(2, attempt - 1);
-            log.info(`Rate limited or error (attempt ${attempt}/${maxRetries}). Waiting ${delay}ms...`);
+            log.info(`Rate limited or server error (attempt ${attempt}/${maxRetries}). Waiting ${delay}ms...`);
             await new Promise(resolve => setTimeout(resolve, delay));
         }
     }
@@ -228,7 +217,7 @@ async function qualifyWebsite(url, scrapedContent, openai, systemPrompt, maxRetr
             };
         }
 
-        const userMessage = `Please analyze this website and determine if it matches our ICP. 
+        const userMessage = `Please analyze this website and determine if it matches our ICP.
 
 Website URL: ${url}
 
@@ -241,14 +230,8 @@ Based on the content above, determine if this company is a qualified prospect ac
             return await openai.chat.completions.create({
                 model: 'openai/gpt-4o-mini',
                 messages: [
-                    {
-                        role: 'system',
-                        content: systemPrompt,
-                    },
-                    {
-                        role: 'user',
-                        content: userMessage,
-                    },
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userMessage },
                 ],
                 response_format: { type: 'json_object' },
                 max_tokens: 1000,
@@ -257,12 +240,11 @@ Based on the content above, determine if this company is a qualified prospect ac
         }, maxRetries, 2000, log);
 
         const responseText = completion.choices[0]?.message?.content;
-        
+
         if (!responseText) {
             throw new Error('No response from AI');
         }
 
-        // Parse the JSON response
         let result;
         try {
             result = JSON.parse(responseText);
@@ -283,7 +265,7 @@ Based on the content above, determine if this company is a qualified prospect ac
         };
 
     } catch (error) {
-        log.error(`Error qualifying ${url}:`, error.message);
+        log.error(`Error qualifying ${url}: ${error.message}`);
         return {
             url,
             verdict: 'DISQUALIFY',
@@ -295,26 +277,25 @@ Based on the content above, determine if this company is a qualified prospect ac
 
 // Main actor function
 async function main() {
+    const { log } = Actor;                          // ✅ Use Actor.log, not console
     const input = await Actor.getInput();
-    
-    // Validate input
+
     if (!input || !input.urls || !Array.isArray(input.urls) || input.urls.length === 0) {
         throw new Error('Input must contain a "urls" array with at least one URL');
     }
-    
+
     if (!input.openrouterApiKey) {
         throw new Error('Input must contain "openrouterApiKey"');
     }
 
-    const { 
-        urls, 
-        openrouterApiKey, 
+    const {
+        urls,
+        openrouterApiKey,
         icpSystemPrompt = DEFAULT_SYSTEM_PROMPT,
         delayBetweenRequests = 2000,
         maxRetries = 3
     } = input;
 
-    // Initialize OpenAI client
     const openai = new OpenAI({
         baseURL: 'https://openrouter.ai/api/v1',
         apiKey: openrouterApiKey,
@@ -324,25 +305,23 @@ async function main() {
         },
     });
 
-    // Get default dataset for results
     const dataset = await Actor.openDataset();
-    
-    // Log start
-    console.log(`\n🤖 Starting AI Website Qualifying Agent`);
-    console.log(`📋 Processing ${urls.length} URLs\n`);
+
+    log.info(`Starting AI Website Qualifying Agent`);
+    log.info(`Processing ${urls.length} URLs`);
 
     const results = [];
 
     for (let i = 0; i < urls.length; i++) {
         const url = urls[i];
-        console.log(`\n📡 Processing: ${url} (${i + 1}/${urls.length})`);
-        
-        // Step 1: Scrape the website
-        console.log(`🔍 Scraping website...`);
-        const scraped = await scrapeWebsite(url, console);
-        
+        log.info(`Processing: ${url} (${i + 1}/${urls.length})`);
+
+        // Step 1: Scrape
+        log.info(`Scraping website...`);
+        const scraped = await scrapeWebsite(url, log);
+
         if (!scraped.success) {
-            console.log(`❌ Scraping failed: ${scraped.error}`);
+            log.warning(`Scraping failed: ${scraped.error}`);
             const result = {
                 url,
                 verdict: 'DISQUALIFY',
@@ -351,49 +330,40 @@ async function main() {
             };
             results.push(result);
             await dataset.pushData(result);
-            
-            // Delay between URLs
+
             if (i < urls.length - 1) {
-                console.log(`⏳ Waiting ${delayBetweenRequests}ms before next URL...`);
                 await new Promise(resolve => setTimeout(resolve, delayBetweenRequests));
             }
             continue;
         }
 
-        console.log(`✅ Scraped successfully: ${scraped.title}`);
-        
+        log.info(`Scraped successfully: ${scraped.title}`);
+
         // Step 2: Qualify with AI
-        console.log(`🤖 Qualifying with AI...`);
-        const qualification = await qualifyWebsite(url, scraped.content, openai, icpSystemPrompt, maxRetries, console);
-        
-        console.log(`📊 Result: ${qualification.verdict} (Score: ${qualification.score})`);
-        console.log(`💬 Reason: ${qualification.reason}`);
-        
+        log.info(`Qualifying with AI...`);
+        const qualification = await qualifyWebsite(url, scraped.content, openai, icpSystemPrompt, maxRetries, log);
+
+        log.info(`Result: ${qualification.verdict} (Score: ${qualification.score})`);
+        log.info(`Reason: ${qualification.reason}`);
+
         results.push(qualification);
         await dataset.pushData(qualification);
-        
-        // Delay between URLs to avoid rate limiting
+
         if (i < urls.length - 1) {
-            console.log(`⏳ Waiting ${delayBetweenRequests}ms before next URL to avoid rate limiting...`);
+            log.info(`Waiting ${delayBetweenRequests}ms before next URL...`);
             await new Promise(resolve => setTimeout(resolve, delayBetweenRequests));
         }
     }
 
-    // Summary
     const qualified = results.filter(r => r.verdict === 'QUALIFY').length;
     const disqualified = results.filter(r => r.verdict === 'DISQUALIFY').length;
-    
-    console.log(`\n🎉 Complete!`);
-    console.log(`   Total: ${results.length}`);
-    console.log(`   Qualified: ${qualified}`);
-    console.log(`   Disqualified: ${disqualified}`);
-    console.log(`\n📊 Results saved to dataset.`);
 
-    // Clean up browser
+    log.info(`Complete! Total: ${results.length} | Qualified: ${qualified} | Disqualified: ${disqualified}`);
+
     await closeBrowser();
 
-    // Return summary
-    await Actor.setOutput({
+    // ✅ Fixed: Actor.setOutput() doesn't exist — use Actor.setValue('OUTPUT', ...)
+    await Actor.setValue('OUTPUT', {
         total: urls.length,
         qualified,
         disqualified,
@@ -401,5 +371,4 @@ async function main() {
     });
 }
 
-// Run the actor
 Actor.main(main);
